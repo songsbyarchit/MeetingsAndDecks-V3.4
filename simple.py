@@ -26,6 +26,61 @@ openai.api_key = OPENAI_API_KEY
 def log_request():
     print(f"📥 Incoming request: {request.method} {request.path} from {request.remote_addr}")
 
+def ensure_webhook_exists():
+    """
+    Ensures a Webex webhook exists for this integration.
+    If any unwanted webhooks exist (like 'DonnaBotWebhook'), they are deleted.
+    """
+    WEBHOOK_NAME = "MeetingsAndDecksWebhook"
+    WEBHOOK_TARGET_URL = "https://jennet-amazing-sailfish.ngrok-free.app/webhook"  # Replace with your actual URL
+    WEBHOOK_RESOURCE = "messages"
+    WEBHOOK_EVENT = "created"
+    WEBEX_ROOM_ID = os.getenv("WEBEX_ROOM_ID")
+
+    url = "https://webexapis.com/v1/webhooks"
+    headers = {
+        "Authorization": f"Bearer {WEBEX_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    # Step 1: Check existing webhooks
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        webhooks = response.json().get("items", [])
+        existing_webhook = None
+
+        for webhook in webhooks:
+            if webhook["name"] == WEBHOOK_NAME and webhook["targetUrl"] == WEBHOOK_TARGET_URL:
+                existing_webhook = webhook
+            elif webhook["name"] != WEBHOOK_NAME:  # Delete any other webhooks
+                delete_url = f"https://webexapis.com/v1/webhooks/{webhook['id']}"
+                delete_response = requests.delete(delete_url, headers=headers)
+                if delete_response.status_code == 204:
+                    print(f"🗑️ Deleted old webhook '{webhook['name']}' (ID: {webhook['id']})")
+                else:
+                    print(f"❌ Failed to delete webhook '{webhook['name']}': {delete_response.text}")
+
+        if existing_webhook:
+            print(f"✅ Webhook '{WEBHOOK_NAME}' already exists.")
+            return  # Webhook exists, no need to create a new one
+
+    # Step 2: If no webhook exists, create one
+    payload = {
+        "name": WEBHOOK_NAME,
+        "targetUrl": WEBHOOK_TARGET_URL,
+        "resource": WEBHOOK_RESOURCE,
+        "event": WEBHOOK_EVENT,
+        "filter": f"roomId={WEBEX_ROOM_ID}"  # Ensuring it only triggers for the right room
+    }
+
+    create_response = requests.post(url, json=payload, headers=headers)
+
+    if create_response.status_code == 200:
+        print(f"✅ Created new webhook '{WEBHOOK_NAME}' successfully!")
+    else:
+        print(f"❌ Failed to create webhook: {create_response.status_code} - {create_response.text}")
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     """Handles incoming Webex webhooks."""
@@ -42,9 +97,21 @@ def webhook():
         if room_id != os.getenv("WEBEX_ROOM_ID"):
             print(f"🚫 Ignoring message from room {room_id}. Not the configured integration space.")
             return jsonify({"status": "ignored"}), 200
-        if data.get("personEmail") != "arsachde@cisco.com":
-            print("🚫 Ignoring message from a different sender.")
-            return jsonify({"status": "ignored"}), 200
+
+            message_text = fetch_webex_message_text(message_id)
+            print(f"Received message: {message_text}")
+            
+            # Prevent infinite loop by ignoring messages sent by the integration itself or the bot's own confirmation messages
+            if webhook_data.get("actorId") == webhook_data.get("createdBy") or \
+            (data.get("personEmail") == "arsachde@cisco.com" and "All done! Meeting" in message_text):
+                print("🚫 Ignoring message from the integration itself or bot's confirmation message to prevent infinite loop.")
+                return jsonify({"status": "ignored"}), 200
+
+            # Prevent infinite loop by ignoring bot's own confirmation messages
+            if data.get("personEmail") == "arsachde@cisco.com" and "All done! Meeting" in message_text:
+                print("🚫 Ignoring confirmation message to prevent infinite loop.")
+                return jsonify({"status": "ignored"}), 200
+
         
         message_id = data.get("id")
         room_id = data.get("roomId")
@@ -303,4 +370,5 @@ def google_callback():
     return "Google OAuth successful. You can close this window."
 
 if __name__ == "__main__":
+    ensure_webhook_exists()  # Ensure a Webex webhook is set up before running
     app.run(host="0.0.0.0", port=5001, debug=True)
