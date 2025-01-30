@@ -7,7 +7,8 @@ import json
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from datetime import date, time, datetime
+from datetime import date, time, datetime, timedelta
+import pytz
 
 today_str = date.today().strftime("%B %d, %Y")
 
@@ -164,11 +165,16 @@ def create_google_calendar_event(host_email, booking_data, webex_link):
     # Create the meeting title
     meeting_title = " // ".join(attendee_names)
 
+    uk_tz = pytz.timezone("Europe/London")
+    start_time = datetime.strptime(f"{user_date} {user_time}", "%B %d, %Y %I:%M %p")
+    start_time = uk_tz.localize(start_time)  # Ensure it's in UK time zone
+    end_time = start_time + timedelta(minutes=30)  # Default meeting length: 30 minutes
+
     event_body = {
         "summary": meeting_title,
         "location": webex_link,  # or "Webex Meeting" etc.
-        "start": {"dateTime": start_datetime, "timeZone": "Europe/London"},
-        "end": {"dateTime": end_datetime, "timeZone": "Europe/London"},
+        "start": {"dateTime": start_time.isoformat(), "timeZone": "Europe/London"},
+        "end": {"dateTime": end_time.isoformat(), "timeZone": "Europe/London"},
         "attendees": [{"email": email} for email in booking_data.get("attendees", [])] + [{"email": "arsachde@cisco.com"}],
         "organizer": {"email": host_email},  # tries to set the host as archit
     }
@@ -189,13 +195,18 @@ def process_natural_language_input(user_text):
                 {
                     "role": "system",
                     "content": (
-                        f"You are a helpful meeting scheduling assistant. "
-                        f"Today is {today_str}. "
-                        "All meetings must be scheduled at a future time. "
-                        "Use Europe/London time by default. "
-                        "When a user asks to schedule a meeting, parse the relevant details "
-                        "like attendees, date, and time, and return them in JSON format. "
-                        "For example: {\"attendees\":[...], \"date\":\"...\", \"time\":\"...\"}."
+                        f"You are a meeting scheduling assistant. "
+                        f"Today's date is {today_str}. "
+                        "You MUST always return a JSON object with only three fields: 'attendees', 'date', and 'time'.\n"
+                        "You MUST NOT include any other text, explanations, or formatting outside of the JSON object.\n"
+                        "You MUST strictly follow these formatting rules:\n"
+                        "- 'date' MUST be in the strict format 'Month DD, YYYY' (e.g., 'January 31, 2025').\n"
+                        "- 'time' MUST be in 12-hour format with AM/PM (e.g., '5:30 PM').\n"
+                        "- If the user specifies 'tomorrow' or another relative date, you MUST resolve it into an absolute 'Month DD, YYYY' format.\n"
+                        "- If the user specifies a time in 24-hour format (e.g., 17:30), you MUST convert it to 12-hour format (e.g., 5:30 PM). Include AM/PM.\n"
+                        "You MUST NOT return any other text outside of the JSON.\n"
+                        "Example output:\n"
+                        "{\"attendees\": [\"user@example.com\"], \"date\": \"January 31, 2025\", \"time\": \"5:30 PM\"}"
                     )
                 },
                 {
