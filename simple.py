@@ -422,8 +422,9 @@ def google_callback():
 if __name__ == "__main__":
     ensure_webhook_exists()  # Ensure webhook is set up
 
-    # ✅ Only send test button on initial manual start, NOT on auto-restarts
-    if not os.getenv("FLASK_RUN_FROM_CLI"):
+    # ✅ Only send the test button once per process
+    if not os.getenv("TEST_BUTTON_SENT"):
         send_test_button()
+        os.environ["TEST_BUTTON_SENT"] = "true"  # ✅ Set flag to prevent duplicate sends
 
     app.run(host="0.0.0.0", port=5001, debug=True)
