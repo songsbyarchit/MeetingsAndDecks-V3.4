@@ -32,7 +32,12 @@ def webhook():
     event = webhook_data.get("event")
     data = webhook_data.get("data", {})
 
-    if resource == "messages" and event == "created" and data.get("roomId") == os.getenv("WEBEX_ROOM_ID"):
+    if resource == "messages" and event == "created":
+        room_id = data.get("roomId")
+        if room_id != os.getenv("WEBEX_ROOM_ID"):
+            print(f"🚫 Ignoring message from room {room_id}. Not the configured integration space.")
+            return jsonify({"status": "ignored"}), 200
+        
         message_id = data.get("id")
         room_id = data.get("roomId")
 
