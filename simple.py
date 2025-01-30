@@ -42,6 +42,9 @@ def webhook():
         if room_id != os.getenv("WEBEX_ROOM_ID"):
             print(f"🚫 Ignoring message from room {room_id}. Not the configured integration space.")
             return jsonify({"status": "ignored"}), 200
+        if data.get("personEmail") != "arsachde@cisco.com":
+            print("🚫 Ignoring message from a different sender.")
+            return jsonify({"status": "ignored"}), 200
         
         message_id = data.get("id")
         room_id = data.get("roomId")
@@ -75,7 +78,15 @@ def webhook():
                     booking_data=booking_data,
                     webex_link=webex_meeting_url
                 )
+    
+                # 7. Send a confirmation message in Webex
+                confirmation_message = (
+                    f"All done! Meeting **{booking_data.get('attendees', [''])[0]}** "
+                    f"is booked at **{booking_data.get('date')} {booking_data.get('time')}**.\n\n"
+                    f"Here's ya link: {webex_meeting_url}"
+                )
 
+                send_webex_message(room_id, confirmation_message)
 
     return jsonify({"status": "ok"}), 200
 
@@ -108,6 +119,24 @@ def create_webex_meeting(booking_data):
     else:
         print(f"Failed to create Webex meeting: {resp.text}")
         return None
+
+def send_webex_message(room_id, text):
+    """Sends a message to the Webex space."""
+    url = "https://webexapis.com/v1/messages"
+    headers = {
+        "Authorization": f"Bearer {WEBEX_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "roomId": room_id,
+        "text": text
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code == 200:
+        print(f"✅ Sent message to Webex space: {text}")
+    else:
+        print(f"❌ Failed to send message: {response.text}")
 
 @app.route("/callback", methods=["GET"])
 def oauth_callback():
