@@ -18,6 +18,7 @@ app = Flask(__name__)
 
 WEBEX_TOKEN = os.getenv("WEBEX_ACCESS_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+bot_token = os.getenv("BOT_ACCESS_TOKEN")
 
 # Configure OpenAI
 openai.api_key = OPENAI_API_KEY
@@ -102,19 +103,16 @@ def webhook():
             print(f"Received message: {message_text}")
             
             # Prevent infinite loop by ignoring messages sent by the integration itself or the bot's own confirmation messages
-            if webhook_data.get("actorId") == webhook_data.get("createdBy") or \
-            (data.get("personEmail") == "arsachde@cisco.com" and "All done! Meeting" in message_text):
-                print("🚫 Ignoring message from the integration itself or bot's confirmation message to prevent infinite loop.")
+            if webhook_data.get("actorId") == "Y2lzY29zcGFyazovL3VzL0FQUExJQ0FUSU9OLzZjMzlkY2JhLTZmYjAtNDkxNS04NjNlLWFiZWQ3ZDZkMDI1Zg":  # Bot's actorId
+                print("🚫 Ignoring message from the bot to prevent infinite loop.")
                 return jsonify({"status": "ignored"}), 200
 
             # Prevent infinite loop by ignoring bot's own confirmation messages
-            if data.get("personEmail") == "arsachde@cisco.com" and "All done! Meeting" in message_text:
-                print("🚫 Ignoring confirmation message to prevent infinite loop.")
+            if data.get("personEmail") == "madfrontend@webex.bot" and "All done! Meeting" in message_text:
+                print("🚫 Ignoring confirmation message from the bot to prevent infinite loop.")
                 return jsonify({"status": "ignored"}), 200
-
         
         message_id = data.get("id")
-        room_id = data.get("roomId")
 
         if message_id:
             # 2. Get the actual text of the message from Webex
@@ -148,12 +146,13 @@ def webhook():
     
                 # 7. Send a confirmation message in Webex
                 confirmation_message = (
-                    f"All done! Meeting **{booking_data.get('attendees', [''])[0]}** "
-                    f"is booked at **{booking_data.get('date')} {booking_data.get('time')}**.\n\n"
+                    f"All done! Meeting with {booking_data.get('attendees', [''])[0]} "
+                    f"is booked at {booking_data.get('date')} {booking_data.get('time')}.\n\n"
                     f"Here's ya link: {webex_meeting_url}"
                 )
 
-                send_webex_message(room_id, confirmation_message)
+                # 7. Send a confirmation message in Webex (to a different room)
+                send_webex_bot_message(room_id, confirmation_message, is_notification=True)
 
     return jsonify({"status": "ok"}), 200
 
@@ -187,21 +186,28 @@ def create_webex_meeting(booking_data):
         print(f"Failed to create Webex meeting: {resp.text}")
         return None
 
-def send_webex_message(room_id, text):
-    """Sends a message to the Webex space."""
+def send_webex_bot_message(room_id, message, is_notification=False):
+    """Sends a message from the bot to a Webex space."""
+    bot_token = os.getenv("BOT_ACCESS_TOKEN")
     url = "https://webexapis.com/v1/messages"
+    
     headers = {
-        "Authorization": f"Bearer {WEBEX_TOKEN}",
+        "Authorization": f"Bearer {bot_token}",
         "Content-Type": "application/json"
     }
+
+    # Use the notification room if is_notification is True
+    target_room = os.getenv("NOTIFICATION_ROOM_ID") if is_notification else room_id
+
     payload = {
-        "roomId": room_id,
-        "text": text
+        "roomId": target_room,
+        "text": message
     }
     
     response = requests.post(url, json=payload, headers=headers)
+    
     if response.status_code == 200:
-        print(f"✅ Sent message to Webex space: {text}")
+        print(f"✅ Sent message from bot to Webex space: {message}")
     else:
         print(f"❌ Failed to send message: {response.text}")
 
