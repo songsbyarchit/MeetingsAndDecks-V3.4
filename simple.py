@@ -22,6 +22,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # Configure OpenAI
 openai.api_key = OPENAI_API_KEY
 
+@app.before_request
+def log_request():
+    print(f"📥 Incoming request: {request.method} {request.path} from {request.remote_addr}")
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     """Handles incoming Webex webhooks."""
