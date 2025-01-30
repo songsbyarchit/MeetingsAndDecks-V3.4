@@ -7,7 +7,7 @@ import json
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from datetime import date
+from datetime import date, time, datetime
 
 today_str = date.today().strftime("%B %d, %Y")
 
@@ -157,16 +157,23 @@ def create_google_calendar_event(host_email, booking_data, webex_link):
 
 
     # 3. Create the event body
+    # Extract first part of emails (before @)
+    attendee_names = [email.split("@")[0] for email in booking_data.get("attendees", [])]
+    attendee_names.append("arsachde")  # Ensuring 'arsachde' (arsachde@cisco.com) is included
+
+    # Create the meeting title
+    meeting_title = " // ".join(attendee_names)
+
     event_body = {
-        "summary": "Meeting from GPT + Webex",
+        "summary": meeting_title,
         "location": webex_link,  # or "Webex Meeting" etc.
         "start": {"dateTime": start_datetime, "timeZone": "Europe/London"},
         "end": {"dateTime": end_datetime, "timeZone": "Europe/London"},
-        "attendees": [{"email": email} for email in booking_data.get("attendees", [])],
+        "attendees": [{"email": email} for email in booking_data.get("attendees", [])] + [{"email": "arsachde@cisco.com"}],
         "organizer": {"email": host_email},  # tries to set the host as archit
     }
 
-    event = service.events().insert(calendarId=host_email, body=event_body, sendNotifications=True).execute()
+    event = service.events().insert(calendarId=host_email, body=event_body, sendUpdates="all").execute()
     print(f"Google event created: {event.get('htmlLink')}")
 
 def process_natural_language_input(user_text):
