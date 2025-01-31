@@ -9,6 +9,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from datetime import date, time, datetime, timedelta
 import pytz
+import time  # Add this at the top of your file if not already imported
+
 
 today_str = date.today().strftime("%B %d, %Y")
 
@@ -232,14 +234,63 @@ def get_recent_conversations():
                     last_active = room.get("lastActivity", "")
                     if person_email and person_email not in unique_people:  # Avoid duplicates
                         unique_people[person_email] = last_active
+                        # Fetch display name from Webex API
+                        # Track time before API call
+                        start_time = time.time()
+
+                        # Fetch display name from Webex API
+                        person_url = f"https://webexapis.com/v1/people?email={person_email}"
+                        person_response = requests.get(person_url, headers=headers)
+
+                        # Track time after API call
+                        end_time = time.time()
+                        elapsed_time = end_time - start_time
+
+                        if person_response.status_code == 200:
+                            person_data = person_response.json().get("items", [])
+                            if person_data:
+                                display_name = person_data[0].get("displayName", person_email)  # Fallback to email if no name
+                            else:
+                                display_name = person_email  # Fallback
+                        else:
+                            display_name = person_email  # Fallback
+
+                        # Print time taken for each call
+                        print(f"✅ Fetched display name for {person_email}: {display_name} (⏱️ {elapsed_time:.2f} seconds)")
+
+
+                        if person_response.status_code == 200:
+                            person_data = person_response.json().get("items", [])
+                            if person_data:
+                                display_name = person_data[0].get("displayName", person_email)  # Fallback to email if no name
+                            else:
+                                display_name = person_email  # Fallback
+                        else:
+                            display_name = person_email  # Fallback
+
+                        # Store as (display_name, email, last_active) instead of just email
+                        unique_people[person_email] = (display_name, last_active)
+
 
         # Sort people by recency (DMs first, then group members)
-        sorted_people = sorted(unique_people.items(), key=lambda x: x[1], reverse=True)
+        sorted_people = sorted(unique_people.items(), key=lambda x: x[1][1] if isinstance(x[1], tuple) else "", reverse=True)
 
         return sorted_people
     else:
         print(f"❌ Failed to retrieve conversations: {direct_response.text} {group_response.text}")
         return []
+
+def search_contacts_by_first_name(contacts, first_name):
+    """Searches for all contacts matching a given first name."""
+    matching_contacts = [
+        (email, data[1]) for email, data in contacts if isinstance(data, tuple) and email.split("@")[0].lower() == first_name.lower()
+    ]
+
+    if matching_contacts:
+        return sorted(matching_contacts, key=lambda x: x[1], reverse=True)  # Sort by recency
+    else:
+        return []
+
 
 def send_webex_bot_message(room_id, message, is_notification=False):
     """Sends a message from the bot to a Webex space."""
@@ -433,7 +484,18 @@ def google_callback():
 if __name__ == "__main__":
     people = get_recent_conversations()
     print("🔍 Recent unique contacts:")
-    for email, last_active in people:
-        print(f"- {email} (Last Active: {last_active})")
+    for email, (display_name, last_active) in people:
+        print(f"- {display_name} ({email}) (Last Active: {last_active})")
+
+    # Test searching for a specific first name
+    search_name = "Peter"
+    results = search_contacts_by_first_name(people, search_name)
+    
+    if results:
+        print(f"\n🔍 Contacts matching '{search_name}':")
+        for email, last_active in results:
+            print(f"- {email} (Last Active: {last_active})")
+    else:
+        print(f"\n❌ No contacts found with the name '{search_name}'.")
     #ensure_webhook_exists()  # Ensure a Webex webhook is set up before running
     #app.run(host="0.0.0.0", port=5001, debug=True)
