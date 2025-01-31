@@ -186,6 +186,61 @@ def create_webex_meeting(booking_data):
         print(f"Failed to create Webex meeting: {resp.text}")
         return None
 
+def get_recent_conversations():
+    """Fetches a list of all unique people from 1-on-1 DMs and group spaces, sorted by recency (DMs first)."""
+    url = "https://webexapis.com/v1/rooms"
+    headers = {
+        "Authorization": f"Bearer {WEBEX_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    # Fetch all direct (1-on-1) conversations
+    direct_params = {"type": "direct"}
+    direct_response = requests.get(url, headers=headers, params=direct_params)
+    
+    # Fetch all group spaces
+    group_params = {"type": "group"}
+    group_response = requests.get(url, headers=headers, params=group_params)
+
+    if direct_response.status_code == 200 and group_response.status_code == 200:
+        direct_rooms = direct_response.json().get("items", [])
+        group_rooms = group_response.json().get("items", [])
+
+        # Sort direct rooms by last activity timestamp (most recent first)
+        sorted_direct_rooms = sorted(direct_rooms, key=lambda r: r.get("lastActivity", ""), reverse=True)
+
+        # Get unique people from 1-on-1 DMs
+        unique_people = {}
+        for room in sorted_direct_rooms:
+            person_email = room.get("creatorId", "Unknown")  # Get the participant in DM
+            if person_email != "Unknown":
+                unique_people[person_email] = room.get("lastActivity", "")
+
+        # Now fetch participants from group spaces
+        for room in group_rooms:
+            room_id = room.get("id")
+            if not room_id:
+                continue
+
+            membership_url = f"https://webexapis.com/v1/memberships?roomId={room_id}"
+            membership_response = requests.get(membership_url, headers=headers)
+
+            if membership_response.status_code == 200:
+                members = membership_response.json().get("items", [])
+                for member in members:
+                    person_email = member.get("personEmail")
+                    last_active = room.get("lastActivity", "")
+                    if person_email and person_email not in unique_people:  # Avoid duplicates
+                        unique_people[person_email] = last_active
+
+        # Sort people by recency (DMs first, then group members)
+        sorted_people = sorted(unique_people.items(), key=lambda x: x[1], reverse=True)
+
+        return sorted_people
+    else:
+        print(f"❌ Failed to retrieve conversations: {direct_response.text} {group_response.text}")
+        return []
+
 def send_webex_bot_message(room_id, message, is_notification=False):
     """Sends a message from the bot to a Webex space."""
     bot_token = os.getenv("BOT_ACCESS_TOKEN")
@@ -376,5 +431,9 @@ def google_callback():
     return "Google OAuth successful. You can close this window."
 
 if __name__ == "__main__":
-    ensure_webhook_exists()  # Ensure a Webex webhook is set up before running
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    people = get_recent_conversations()
+    print("🔍 Recent unique contacts:")
+    for email, last_active in people:
+        print(f"- {email} (Last Active: {last_active})")
+    #ensure_webhook_exists()  # Ensure a Webex webhook is set up before running
+    #app.run(host="0.0.0.0", port=5001, debug=True)
